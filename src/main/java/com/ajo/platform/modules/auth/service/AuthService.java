@@ -62,7 +62,13 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        // TEMP DEBUG - disable authenticationManager
+
+        authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                        request.getEmail(),
+                        request.getPassword()
+                )
+        );
 
         var user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new RuntimeException("User not found"));

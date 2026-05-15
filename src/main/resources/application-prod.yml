@@ -1,15 +1,18 @@
 spring:
+  config:
+    activate:
+      on-profile: prod
+
   datasource:
-    url: ${DATABASE_JDBC_URL}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    url: ${DATABASE_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: false
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
 
 jwt:
   secret: ${JWT_SECRET}
@@ -18,17 +21,19 @@ jwt:
 paystack:
   secret-key: ${PAYSTACK_SECRET_KEY}
   public-key: ${PAYSTACK_PUBLIC_KEY}
-  base-url: ${PAYSTACK_BASE_URL}
+  base-url: https://api.paystack.co
 
 termii:
   api-key: ${TERMII_API_KEY}
   sender-id: ${TERMII_SENDER_ID}
-  base-url: ${TERMII_BASE_URL}
+  base-url: https://v3.api.termii.com
 
 sendgrid:
   api-key: ${SENDGRID_API_KEY}
   from-email: ${SENDGRID_FROM_EMAIL}
   from-name: ${SENDGRID_FROM_NAME}
 
-server:
-  port: 8080
+logging:
+  level:
+    org.springframework.security: WARN
+    com.ajo.platform: INFO
