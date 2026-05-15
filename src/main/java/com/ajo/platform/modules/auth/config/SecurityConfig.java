@@ -118,6 +118,14 @@ public class SecurityConfig {
         private final JwtService jwtService;
         private final UserDetailsService userDetailsService;
 
+        // ADD THIS METHOD - it tells Spring to skip this filter for certain paths
+        @Override
+        protected boolean shouldNotFilter(HttpServletRequest request) {
+            String path = request.getServletPath();
+            return path.startsWith("/api/auth/") ||
+                    path.startsWith("/api/payments/webhook/");
+        }
+
         @Override
         protected void doFilterInternal(
                 HttpServletRequest request,
@@ -138,14 +146,19 @@ public class SecurityConfig {
             userEmail = jwtService.extractUsername(jwt);
 
             if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                var userDetails = userDetailsService.loadUserByUsername(userEmail);
-                if (jwtService.isTokenValid(jwt, userDetails)) {
-                    var authToken = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
-                            userDetails,
-                            null,
-                            userDetails.getAuthorities()
-                    );
-                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                try {
+                    var userDetails = userDetailsService.loadUserByUsername(userEmail);
+                    if (jwtService.isTokenValid(jwt, userDetails)) {
+                        var authToken = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                                userDetails,
+                                null,
+                                userDetails.getAuthorities()
+                        );
+                        SecurityContextHolder.getContext().setAuthentication(authToken);
+                    }
+                } catch (UsernameNotFoundException e) {
+                    // Log but don't block
+                    logger.debug("User not found: " + userEmail);
                 }
             }
 
