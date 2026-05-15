@@ -32,3 +32,9 @@ sendgrid:
 
 server:
   port: 8080
+
+# Disable CSRF via properties as backup
+spring:
+  security:
+    csrf:
+      enabled: false
