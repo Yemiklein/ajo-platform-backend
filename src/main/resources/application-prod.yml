@@ -38,3 +38,12 @@ spring:
   security:
     csrf:
       enabled: false
+
+# Additional CORS config
+spring:
+  web:
+    cors:
+      allowed-origins: http://localhost:3000
+      allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+      allowed-headers: "*"
+      allow-credentials: true
