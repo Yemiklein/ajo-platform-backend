@@ -1,13 +1,6 @@
 spring:
   application:
     name: ajo-platform
-  profiles:
-    active: local
-  datasource:
-    url: jdbc:postgresql://localhost:5432/ajo_platform
-    username: ajo_user
-    password: ajo_password
-    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: update
