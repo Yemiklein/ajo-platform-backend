@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: ajo-platform
+  profiles:
+    active: local
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ajo_platform
+    username: ajo_user
+    password: ajo_password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+paystack:
+  secret-key: ${PAYSTACK_SECRET_KEY}
+  public-key: ${PAYSTACK_PUBLIC_KEY}
+  base-url: ${PAYSTACK_BASE_URL:https://api.paystack.co}
+
+termii:
+  api-key: ${TERMII_API_KEY}
+  sender-id: ${TERMII_SENDER_ID:AjoPlatform}
+  base-url: ${TERMII_BASE_URL:https://v3.api.termii.com}
+
+sendgrid:
+  api-key: ${SENDGRID_API_KEY}
+  from-email: ${SENDGRID_FROM_EMAIL}
+  from-name: ${SENDGRID_FROM_NAME:Ajo Platform}
+
+server:
+  port: 8080
