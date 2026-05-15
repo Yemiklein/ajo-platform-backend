@@ -92,4 +92,51 @@ public class AuthService {
                 user.isEnabled()
         );
     }
+
+    public AuthResponse registerAdmin(RegisterRequest request, String adminSecret) {
+        String expectedSecret = System.getenv("ADMIN_REGISTRATION_SECRET");
+        if (expectedSecret == null || !expectedSecret.equals(adminSecret)) {
+            throw new RuntimeException("Invalid admin secret");
+        }
+
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new RuntimeException("Email already registered");
+        }
+
+        if (userRepository.existsByPhoneNumber(request.getPhoneNumber())) {
+            throw new RuntimeException("Phone number already registered");
+        }
+
+        var user = User.builder()
+                .firstName(request.getFirstName())
+                .lastName(request.getLastName())
+                .email(request.getEmail())
+                .password(passwordEncoder.encode(request.getPassword()))
+                .phoneNumber(request.getPhoneNumber())
+                .role(User.Role.ADMIN)
+                .enabled(true)
+                .build();
+
+        userRepository.save(user);
+
+        var token = jwtService.generateToken(
+                new org.springframework.security.core.userdetails.User(
+                        user.getEmail(),
+                        user.getPassword(),
+                        java.util.Collections.emptyList()
+                )
+        );
+
+        return new AuthResponse(
+                token,
+                user.getId(),
+                user.getEmail(),
+                user.getFirstName(),
+                user.getLastName(),
+                user.getPhoneNumber(),
+                user.getRole().name(),
+                user.isEnabled()
+        );
+    }
+
 }
