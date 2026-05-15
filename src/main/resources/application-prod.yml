@@ -4,9 +4,9 @@ spring:
       on-profile: prod
 
   datasource:
-    url: ${DATABASE_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: ${DATABASE_JDBC_URL}           # ← Changed from DATABASE_URL
+    username: ${SPRING_DATASOURCE_USERNAME}  # ← Changed from DB_USERNAME
+    password: ${SPRING_DATASOURCE_PASSWORD}  # ← Changed from DB_PASSWORD
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -21,17 +21,20 @@ jwt:
 paystack:
   secret-key: ${PAYSTACK_SECRET_KEY}
   public-key: ${PAYSTACK_PUBLIC_KEY}
-  base-url: https://api.paystack.co
+  base-url: ${PAYSTACK_BASE_URL}        # ← Changed from hardcoded URL
 
 termii:
   api-key: ${TERMII_API_KEY}
   sender-id: ${TERMII_SENDER_ID}
-  base-url: https://v3.api.termii.com
+  base-url: ${TERMII_BASE_URL}          # ← Changed from hardcoded URL
 
 sendgrid:
   api-key: ${SENDGRID_API_KEY}
   from-email: ${SENDGRID_FROM_EMAIL}
   from-name: ${SENDGRID_FROM_NAME}
+
+server:
+  port: 8080
 
 logging:
   level:
