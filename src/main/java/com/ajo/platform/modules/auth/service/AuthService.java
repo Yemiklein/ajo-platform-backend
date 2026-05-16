@@ -19,6 +19,7 @@ import com.ajo.platform.modules.auth.repository.PasswordResetTokenRepository;
 import com.ajo.platform.modules.notifications.service.NotificationService;
 import java.time.LocalDateTime;
 import java.util.Random;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -55,13 +56,7 @@ public class AuthService {
 
         userRepository.save(user);
 
-        var token = jwtService.generateToken(
-                new org.springframework.security.core.userdetails.User(
-                        user.getEmail(),
-                        user.getPassword(),
-                        java.util.Collections.emptyList()
-                )
-        );
+        var token = jwtService.generateTokenWithEmail(user.getEmail());
 
         return new AuthResponse(
                 token,
@@ -150,7 +145,7 @@ public class AuthService {
                 user.isEnabled()
         );
     }
-
+    @Transactional
     public void forgotPassword(ForgotPasswordRequest request) {
         String identifier = request.getIdentifier().trim();
         String type = request.getType().toUpperCase();
@@ -207,7 +202,7 @@ public class AuthService {
             throw new RuntimeException("OTP has expired. Please request a new one");
         }
     }
-
+    @Transactional
     public void resetPassword(ResetPasswordRequest request) {
         PasswordResetToken token = passwordResetTokenRepository
                 .findByOtpAndIdentifierAndUsedFalse(request.getOtp(), request.getIdentifier())
