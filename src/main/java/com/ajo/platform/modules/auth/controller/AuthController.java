@@ -8,6 +8,10 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.ajo.platform.modules.auth.dto.ForgotPasswordRequest;
+import com.ajo.platform.modules.auth.dto.ResetPasswordRequest;
+import com.ajo.platform.modules.auth.dto.VerifyOtpRequest;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -32,4 +36,26 @@ public class AuthController {
             @RequestHeader("X-Admin-Secret") String adminSecret) {
         return ResponseEntity.ok(authService.registerAdmin(request, adminSecret));
     }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Map<String, String>> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest request) {
+        authService.forgotPassword(request);
+        return ResponseEntity.ok(Map.of("message", "OTP sent successfully"));
+    }
+
+    @PostMapping("/verify-otp")
+    public ResponseEntity<Map<String, String>> verifyOtp(
+            @Valid @RequestBody VerifyOtpRequest request) {
+        authService.verifyOtp(request);
+        return ResponseEntity.ok(Map.of("message", "OTP verified successfully"));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<Map<String, String>> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request);
+        return ResponseEntity.ok(Map.of("message", "Password reset successfully"));
+    }
+
 }

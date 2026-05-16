@@ -33,6 +33,10 @@ sendgrid:
   from-email: ${SENDGRID_FROM_EMAIL}
   from-name: ${SENDGRID_FROM_NAME}
 
+admin:
+  registration:
+    secret: ${ADMIN_REGISTRATION_SECRET}
+
 server:
   port: 8080
 

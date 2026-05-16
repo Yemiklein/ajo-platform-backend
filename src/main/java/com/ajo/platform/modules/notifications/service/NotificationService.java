@@ -170,4 +170,25 @@ public class NotificationService {
 
         sendNotification(request);
     }
+
+    public void sendEmailNotification(String emailAddress, String subject, String message) {
+        NotificationRequest request = NotificationRequest.builder()
+                .recipient(emailAddress)
+                .subject(subject)
+                .message(message)
+                .type(NotificationRequest.NotificationType.EMAIL)
+                .build();
+        sendNotification(request);
+    }
+
+    public void sendSmsNotification(String phoneNumber, String message) {
+        NotificationRequest request = NotificationRequest.builder()
+                .recipient(phoneNumber)
+                .subject("Ajo Platform")
+                .message(message)
+                .type(NotificationRequest.NotificationType.SMS)
+                .build();
+        sendNotification(request);
+    }
+
 }
