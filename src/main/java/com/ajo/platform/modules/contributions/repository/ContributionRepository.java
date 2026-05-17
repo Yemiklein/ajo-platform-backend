@@ -13,22 +13,37 @@ import java.util.Optional;
 @Repository
 public interface ContributionRepository extends JpaRepository<Contribution, Long> {
 
-    // Basic existence checks
+    // ============ EXISTING METHODS ============
+
     boolean existsByGroupIdAndUserIdAndCycleNumber(Long groupId, Long userId, Integer cycleNumber);
 
     boolean existsByGroupIdAndUserIdAndCycleNumberAndStatus(Long groupId, Long userId, Integer cycleNumber, String status);
 
-    // Find methods
     Optional<Contribution> findByGroupIdAndUserIdAndCycleNumber(Long groupId, Long userId, Integer cycleNumber);
 
     List<Contribution> findByGroupIdAndCycleNumber(Long groupId, Integer cycleNumber);
 
     List<Contribution> findByGroupId(Long groupId);
 
-    // Count methods
     int countByGroupIdAndUserIdAndStatus(Long groupId, Long userId, String status);
 
-    // Aggregate queries using @Query
+    // ============ NEW MISSING METHODS ============
+
+    // For idempotency key lookups (prevents duplicate payments)
+    Optional<Contribution> findByIdempotencyKey(String idempotencyKey);
+
+    // Find contribution by group and user (without cycle - gets latest or all)
+    List<Contribution> findByGroupIdAndUserId(Long groupId, Long userId);
+
+    // Count paid contributions for a specific group and cycle
+    @Query("SELECT COUNT(c) FROM Contribution c WHERE c.group.id = :groupId AND c.cycleNumber = :cycleNumber AND c.status = 'PAID'")
+    int countPaidContributions(@Param("groupId") Long groupId, @Param("cycleNumber") Integer cycleNumber);
+
+    // Alternative method name that Spring Data JPA can derive
+    int countByGroupIdAndCycleNumberAndStatus(Long groupId, Integer cycleNumber, String status);
+
+    // ============ AGGREGATE METHODS ============
+
     @Query("SELECT SUM(c.amount) FROM Contribution c WHERE c.group.id = :groupId AND c.status = :status")
     Optional<BigDecimal> sumAmountByGroupIdAndStatus(@Param("groupId") Long groupId, @Param("status") String status);
 
@@ -40,4 +55,15 @@ public interface ContributionRepository extends JpaRepository<Contribution, Long
 
     @Query("SELECT COUNT(DISTINCT c.user.id) FROM Contribution c WHERE c.group.id = :groupId AND c.cycleNumber = :cycleNumber AND c.status = 'PAID'")
     int countDistinctUsersWhoPaidByGroupAndCycle(@Param("groupId") Long groupId, @Param("cycleNumber") Integer cycleNumber);
+
+    // ============ ADDITIONAL USEFUL METHODS ============
+
+    // Find all contributions by user
+    List<Contribution> findByUserId(Long userId);
+
+    // Find all contributions by group and status
+    List<Contribution> findByGroupIdAndStatus(Long groupId, String status);
+
+    // Check if user has any paid contribution in group
+    boolean existsByGroupIdAndUserIdAndStatus(Long groupId, Long userId, String status);
 }
