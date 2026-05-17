@@ -4,6 +4,7 @@ import com.ajo.platform.modules.auth.model.User;
 import com.ajo.platform.modules.auth.repository.UserRepository;
 import com.ajo.platform.modules.contributions.dto.ContributeRequest;
 import com.ajo.platform.modules.contributions.dto.ContributionResponse;
+import com.ajo.platform.modules.contributions.dto.ContributionSummaryResponse;
 import com.ajo.platform.modules.contributions.model.Contribution;
 import com.ajo.platform.modules.contributions.repository.ContributionRepository;
 import com.ajo.platform.modules.fraud.dto.FraudCheckResponse;
@@ -17,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -151,5 +153,63 @@ public class ContributionService {
                 .createdAt(contribution.getCreatedAt())
                 .paidAt(contribution.getPaidAt())
                 .build();
+    }
+
+
+    public ContributionSummaryResponse getGroupContributionSummary(Long groupId, String email) {
+        // Check if user is a member
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new RuntimeException("Group not found"));
+
+        boolean isMember = groupMemberRepository.existsByGroupIdAndUserId(groupId, user.getId());
+        boolean isCreator = group.getCreatedBy().getId().equals(user.getId());
+        boolean isAdmin = "ADMIN".equals(user.getRole().name());
+
+        if (!isMember && !isCreator && !isAdmin) {
+            throw new RuntimeException("You are not a member of this group");
+        }
+
+        int totalMembers = groupMemberRepository.countByGroupId(groupId);
+        long totalContributions = contributionRepository.countTotalPaidContributions(groupId);
+        BigDecimal totalAmount = contributionRepository.sumPaidContributions(groupId);
+
+        if (totalAmount == null) totalAmount = BigDecimal.ZERO;
+
+        // Calculate current cycle
+        int currentCycle = calculateCurrentCycle(group);
+        int expectedContributions = totalMembers * currentCycle;
+        double collectionRate = expectedContributions > 0
+                ? (totalContributions * 100.0) / expectedContributions
+                : 0.0;
+
+        return ContributionSummaryResponse.builder()
+                .totalContributions(totalContributions)
+                .totalAmount(totalAmount)
+                .totalMembers(totalMembers)
+                .collectionRate(collectionRate)
+                .expectedContributions(expectedContributions)
+                .groupName(group.getName())
+                .currentCycle(currentCycle)
+                .build();
+    }
+
+    private int calculateCurrentCycle(Group group) {
+        java.time.LocalDateTime created = group.getCreatedAt();
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        long daysSinceCreation = java.time.Duration.between(created, now).toDays();
+
+        switch (group.getCycleType()) {
+            case DAILY:
+                return (int) daysSinceCreation + 1;
+            case WEEKLY:
+                return (int) (daysSinceCreation / 7) + 1;
+            case MONTHLY:
+                return (int) (daysSinceCreation / 30) + 1;
+            default:
+                return 1;
+        }
     }
 }

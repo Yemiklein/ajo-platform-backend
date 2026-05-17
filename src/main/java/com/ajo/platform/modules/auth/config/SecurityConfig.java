@@ -139,17 +139,26 @@ public class SecurityConfig {
             final String jwt;
             final String userEmail;
 
+            System.out.println("=== JWT Filter Debug ===");
+            System.out.println("Request URI: " + request.getRequestURI());
+            System.out.println("Auth Header: " + (authHeader != null ? authHeader.substring(0, Math.min(50, authHeader.length())) + "..." : "null"));
+
             if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                System.out.println("No Bearer token found");
                 filterChain.doFilter(request, response);
                 return;
             }
 
             jwt = authHeader.substring(7);
             userEmail = jwtService.extractUsername(jwt);
+            System.out.println("Extracted email from token: " + userEmail);
 
             if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 try {
                     var userDetails = userDetailsService.loadUserByUsername(userEmail);
+                    System.out.println("UserDetails loaded - username: " + userDetails.getUsername());
+                    System.out.println("UserDetails authorities: " + userDetails.getAuthorities());
+
                     if (jwtService.isTokenValid(jwt, userDetails)) {
                         var authToken = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
                                 userDetails,
@@ -157,11 +166,16 @@ public class SecurityConfig {
                                 userDetails.getAuthorities()
                         );
                         SecurityContextHolder.getContext().setAuthentication(authToken);
+                        System.out.println("Authentication set successfully for: " + userEmail);
+                    } else {
+                        System.out.println("Token invalid for: " + userEmail);
                     }
                 } catch (UsernameNotFoundException e) {
-                    // Log but don't block
+                    System.out.println("User not found: " + userEmail);
                     logger.debug("User not found: " + userEmail);
                 }
+            } else {
+                System.out.println("Authentication already exists or userEmail is null");
             }
 
             filterChain.doFilter(request, response);

@@ -1,5 +1,7 @@
 package com.ajo.platform.modules.groups.controller;
 
+import com.ajo.platform.modules.contributions.dto.ContributionSummaryResponse;
+import com.ajo.platform.modules.contributions.service.ContributionService;
 import com.ajo.platform.modules.groups.dto.*;
 import com.ajo.platform.modules.groups.service.GroupService;
 import jakarta.validation.Valid;
@@ -8,6 +10,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.HashMap;
 import java.util.List;
@@ -19,6 +23,7 @@ import java.util.Map;
 public class GroupController {
 
     private final GroupService groupService;
+    private final ContributionService contributionService;  // ADD THIS
 
     @PostMapping
     public ResponseEntity<GroupResponse> createGroup(
@@ -63,12 +68,13 @@ public class GroupController {
         return ResponseEntity.ok(groupService.joinViaInvite(inviteCode, userDetails.getUsername()));
     }
 
-    // Contribution Tracking Endpoints
+    // ============ CONTRIBUTION SUMMARY ENDPOINT (SINGLE VERSION) ============
     @GetMapping("/{groupId}/contributions/summary")
-    public ResponseEntity<GroupContributionSummaryDto> getContributionSummary(
+    public ResponseEntity<ContributionSummaryResponse> getContributionSummary(
             @PathVariable Long groupId,
             @AuthenticationPrincipal UserDetails userDetails) {
-        return ResponseEntity.ok(groupService.getContributionSummary(groupId, userDetails.getUsername()));
+        return ResponseEntity.ok(
+                contributionService.getGroupContributionSummary(groupId, userDetails.getUsername()));
     }
 
     @GetMapping("/{groupId}/members/{memberId}/contributions")
@@ -84,11 +90,19 @@ public class GroupController {
             @PathVariable Long groupId,
             @AuthenticationPrincipal UserDetails userDetails) {
 
+        System.out.println("=== GroupController.sendReminders ===");
+        System.out.println("userDetails: " + (userDetails != null ? userDetails.getUsername() : "NULL"));
+
+        if (userDetails == null) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "User not authenticated");
+            return ResponseEntity.status(401).body(error);
+        }
+
         groupService.sendPaymentReminders(groupId, userDetails.getUsername());
 
         Map<String, String> response = new HashMap<>();
         response.put("message", "Reminders sent successfully to members who haven't paid");
         return ResponseEntity.ok(response);
     }
-
 }

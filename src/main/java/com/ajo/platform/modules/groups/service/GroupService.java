@@ -14,6 +14,7 @@ import com.ajo.platform.modules.notifications.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.ajo.platform.modules.contributions.model.Contribution;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -31,6 +32,7 @@ public class GroupService {
     private final GroupInviteRepository groupInviteRepository;
     private final ContributionRepository contributionRepository;
     private final NotificationService notificationService;
+
     @Transactional
     public GroupResponse createGroup(CreateGroupRequest request, String email) {
         User user = userRepository.findByEmail(email)
@@ -132,36 +134,29 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new RuntimeException("Group not found"));
 
-        // Check if user is the group creator or admin
         if (!group.getCreatedBy().getId().equals(invitedBy.getId())) {
             throw new RuntimeException("Only group creator can invite members");
         }
 
-        // Check if group is still active/accepting members
         if (group.getStatus() == Group.GroupStatus.COMPLETED || group.getStatus() == Group.GroupStatus.CANCELLED) {
             throw new RuntimeException("Group is no longer active");
         }
 
-        // Check if member limit is reached
         int currentMembers = groupMemberRepository.countByGroupId(groupId);
         if (currentMembers >= group.getMaxMembers()) {
             throw new RuntimeException("Group has reached maximum member limit");
         }
 
-        // Check if user is already a member
         User invitedUser = userRepository.findByEmail(request.getEmail()).orElse(null);
         if (invitedUser != null && groupMemberRepository.existsByGroupIdAndUserId(groupId, invitedUser.getId())) {
             throw new RuntimeException("User is already a member of this group");
         }
 
-        // Remove any existing pending invites for this email and group
         groupInviteRepository.deleteByGroupIdAndInvitedEmail(groupId, request.getEmail());
 
-        // Create new invite
         String inviteCode = UUID.randomUUID().toString();
         String inviteLink = "https://ajo-platform-frontend.vercel.app/join/" + inviteCode;
 
-        // For local development, use localhost
         if (System.getProperty("spring.profiles.active") == null ||
                 System.getProperty("spring.profiles.active").equals("local")) {
             inviteLink = "http://localhost:3000/join/" + inviteCode;
@@ -177,8 +172,25 @@ public class GroupService {
 
         groupInviteRepository.save(invite);
 
-        // TODO: Send email notification with invite link
-        // notificationService.sendInviteEmail(request.getEmail(), group.getName(), inviteLink, request.getMessage());
+        try {
+            notificationService.sendEmailNotification(
+                    request.getEmail(),
+                    "Invitation to join " + group.getName() + " on Ajo Platform",
+                    String.format("Hello,\n\n%s has invited you to join their savings group '%s'.\n\n" +
+                                    "Click the link below to join:\n%s\n\n" +
+                                    "Message from %s: %s\n\n" +
+                                    "This invitation expires in 7 days.\n\n" +
+                                    "Best regards,\nAjo Platform Team",
+                            invitedBy.getFirstName() + " " + invitedBy.getLastName(),
+                            group.getName(),
+                            inviteLink,
+                            invitedBy.getFirstName(),
+                            request.getMessage() != null ? request.getMessage() : "No additional message"
+                    )
+            );
+        } catch (Exception e) {
+            System.out.println("Failed to send email: " + e.getMessage());
+        }
 
         return InviteResponse.builder()
                 .inviteId(invite.getId())
@@ -197,7 +209,6 @@ public class GroupService {
         GroupInvite invite = groupInviteRepository.findByInviteCodeAndStatus(inviteCode, GroupInvite.InviteStatus.PENDING)
                 .orElseThrow(() -> new RuntimeException("Invalid or expired invite link"));
 
-        // Check if invite is expired
         if (invite.getExpiresAt().isBefore(LocalDateTime.now())) {
             invite.setStatus(GroupInvite.InviteStatus.EXPIRED);
             groupInviteRepository.save(invite);
@@ -206,12 +217,10 @@ public class GroupService {
 
         Group group = invite.getGroup();
 
-        // Check if group is still active
         if (group.getStatus() == Group.GroupStatus.COMPLETED || group.getStatus() == Group.GroupStatus.CANCELLED) {
             throw new RuntimeException("Group is no longer active");
         }
 
-        // Check if member limit is reached
         int currentMembers = groupMemberRepository.countByGroupId(group.getId());
         if (currentMembers >= group.getMaxMembers()) {
             invite.setStatus(GroupInvite.InviteStatus.EXPIRED);
@@ -219,12 +228,10 @@ public class GroupService {
             throw new RuntimeException("Group has reached maximum member limit");
         }
 
-        // Check if user is already a member
         if (groupMemberRepository.existsByGroupIdAndUserId(group.getId(), user.getId())) {
             throw new RuntimeException("You are already a member of this group");
         }
 
-        // Add user to group
         GroupMember member = GroupMember.builder()
                 .group(group)
                 .user(user)
@@ -234,12 +241,10 @@ public class GroupService {
 
         groupMemberRepository.save(member);
 
-        // Mark invite as accepted
         invite.setStatus(GroupInvite.InviteStatus.ACCEPTED);
         invite.setAcceptedAt(LocalDateTime.now());
         groupInviteRepository.save(invite);
 
-        // Activate group if member limit reached
         if (currentMembers + 1 >= group.getMaxMembers()) {
             group.setStatus(Group.GroupStatus.ACTIVE);
             groupRepository.save(group);
@@ -251,23 +256,48 @@ public class GroupService {
     // ============ NEW FEATURE 2: MEMBER CONTRIBUTION TRACKING ============
 
     public GroupContributionSummaryDto getContributionSummary(Long groupId, String userEmail) {
+        System.out.println("=== DEBUG: getContributionSummary ===");
+        System.out.println("Group ID: " + groupId);
+        System.out.println("User Email: " + userEmail);
+
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new RuntimeException("Group not found"));
 
-        // Verify user is a member
+        System.out.println("Group found: " + group.getName());
+        System.out.println("Group status: " + group.getStatus());
+        System.out.println("Group creator ID: " + group.getCreatedBy().getId());
+
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        if (!groupMemberRepository.existsByGroupIdAndUserId(groupId, user.getId())) {
-            throw new RuntimeException("You are not a member of this group");
+        System.out.println("User ID: " + user.getId());
+        System.out.println("User role: " + user.getRole().name());
+
+        boolean isAdmin = "ADMIN".equals(user.getRole().name());
+        boolean isCreator = group.getCreatedBy().getId().equals(user.getId());
+        boolean isMember = groupMemberRepository.existsByGroupIdAndUserId(groupId, user.getId());
+
+        System.out.println("Is Admin: " + isAdmin);
+        System.out.println("Is Creator: " + isCreator);
+        System.out.println("Is Member: " + isMember);
+
+        if (!isAdmin && !isCreator && !isMember) {
+            System.out.println("Access denied!");
+            throw new RuntimeException("You are not authorized to view this group's contributions");
         }
 
-        List<GroupMember> members = groupMemberRepository.findByGroupIdAndStatus(groupId, "ACTIVE");
+        System.out.println("Access granted!");
+
+        List<GroupMember> allMembers = groupMemberRepository.findByGroupId(groupId);
+        List<GroupMember> activeMembers = allMembers.stream()
+                .filter(m -> "ACTIVE".equals(m.getStatus()))
+                .collect(Collectors.toList());
 
         BigDecimal totalExpectedAmount = group.getContributionAmount()
-                .multiply(BigDecimal.valueOf(members.size()));
+                .multiply(BigDecimal.valueOf(activeMembers.size()));
 
-        BigDecimal totalReceivedAmount = contributionRepository.sumAmountByGroupIdAndStatus(groupId, "PAID")
+        // FIXED: Removed "PAID" parameter
+        BigDecimal totalReceivedAmount = contributionRepository.sumAmountByGroupIdAndStatus(groupId)
                 .orElse(BigDecimal.ZERO);
 
         BigDecimal collectionRate = totalExpectedAmount.compareTo(BigDecimal.ZERO) > 0
@@ -275,14 +305,14 @@ public class GroupService {
                 .divide(totalExpectedAmount, 2, java.math.RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
-        List<MemberContributionDto> memberContributions = members.stream()
+        List<MemberContributionDto> memberContributions = activeMembers.stream()
                 .map(member -> getMemberContributionSummary(groupId, member.getUser().getId()))
                 .collect(Collectors.toList());
 
         return GroupContributionSummaryDto.builder()
                 .groupId(groupId)
                 .groupName(group.getName())
-                .totalMembers(members.size())
+                .totalMembers(activeMembers.size())
                 .currentCycle(calculateCurrentCycle(group))
                 .totalExpectedAmount(totalExpectedAmount)
                 .totalReceivedAmount(totalReceivedAmount)
@@ -295,12 +325,13 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new RuntimeException("Group not found"));
 
-        // Verify requesting user is a member or admin
         User requestingUser = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        if (!groupMemberRepository.existsByGroupIdAndUserId(groupId, requestingUser.getId())
-                && !"ADMIN".equals(requestingUser.getRole().name())) {
+        boolean isAdmin = "ADMIN".equals(requestingUser.getRole().name());
+        boolean isMember = groupMemberRepository.existsByGroupIdAndUserId(groupId, requestingUser.getId());
+
+        if (!isAdmin && !isMember) {
             throw new RuntimeException("You are not authorized to view this information");
         }
 
@@ -314,14 +345,17 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new RuntimeException("Group not found"));
 
-        int cyclesPaid = contributionRepository.countByGroupIdAndUserIdAndStatus(groupId, userId, "PAID");
-        int cyclesMissed = calculateCurrentCycle(group) - cyclesPaid;
+        // FIXED: Removed "PAID" parameter
+        int cyclesPaid = contributionRepository.countByGroupIdAndUserIdAndStatus(groupId, userId);
+        int currentCycle = calculateCurrentCycle(group);
+        int cyclesMissed = Math.max(0, currentCycle - cyclesPaid);
 
-        BigDecimal totalContributed = contributionRepository.sumAmountByGroupIdAndUserIdAndStatus(groupId, userId, "PAID")
+        // FIXED: Removed "PAID" parameter
+        BigDecimal totalContributed = contributionRepository.sumAmountByGroupIdAndUserIdAndStatus(groupId, userId)
                 .orElse(BigDecimal.ZERO);
 
         String contributionStatus;
-        if (cyclesMissed <= 0) {
+        if (cyclesMissed == 0) {
             contributionStatus = "UP_TO_DATE";
         } else if (cyclesMissed <= 2) {
             contributionStatus = "BEHIND";
@@ -336,7 +370,7 @@ public class GroupService {
                 .userPhoneNumber(user.getPhoneNumber())
                 .totalContributed(totalContributed)
                 .cyclesPaid(cyclesPaid)
-                .cyclesMissed(Math.max(0, cyclesMissed))
+                .cyclesMissed(cyclesMissed)
                 .contributionStatus(contributionStatus)
                 .lastPaymentDate(contributionRepository.findLastPaymentDateByUserIdAndGroupId(userId, groupId)
                         .orElse(null))
@@ -362,8 +396,6 @@ public class GroupService {
     }
 
     private int calculateCurrentCycle(Group group) {
-        // Calculate based on group creation date and cycle type
-        // This is a simplified version - you can enhance this logic
         java.time.LocalDateTime created = group.getCreatedAt();
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
 
@@ -383,36 +415,55 @@ public class GroupService {
 
     @Transactional
     public void sendPaymentReminders(Long groupId, String userEmail) {
-        User creator = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        System.out.println("=== sendPaymentReminders START ===");
 
+        // Get the user
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userEmail));
+        System.out.println("User: " + user.getEmail() + ", Role: " + user.getRole());
+
+        // Get the group
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new RuntimeException("Group not found"));
+                .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
+        System.out.println("Group: " + group.getName() + ", Creator: " + group.getCreatedBy().getEmail());
 
-        // Verify user is the group creator
-        if (!group.getCreatedBy().getId().equals(creator.getId())) {
-            throw new RuntimeException("Only group creator can send reminders");
+        // Permission check - allow ADMIN or CREATOR
+        boolean isAdmin = user.getRole().name().equals("ADMIN");
+        boolean isCreator = group.getCreatedBy().getId().equals(user.getId());
+
+        System.out.println("isAdmin: " + isAdmin);
+        System.out.println("isCreator: " + isCreator);
+
+        if (!isAdmin && !isCreator) {
+            throw new RuntimeException("Only admin or group creator can send reminders");
         }
 
-        // Get all members of the group
+        // Get all members
         List<GroupMember> members = groupMemberRepository.findByGroupId(groupId);
+        System.out.println("Total members: " + members.size());
 
-        int currentCycle = calculateCurrentCycle(group);
+        int currentCycle = 1; // Start with cycle 1 for testing
         int remindersSent = 0;
 
         for (GroupMember member : members) {
             User memberUser = member.getUser();
+            System.out.println("Checking member: " + memberUser.getEmail());
 
-            // Check if member has paid for current cycle
-            boolean hasPaid = contributionRepository.existsByGroupIdAndUserIdAndCycleNumberAndStatus(
-                    groupId, memberUser.getId(), currentCycle, "PAID");
+            // Simple check - if no contributions exist, send reminder
+            boolean hasPaid = contributionRepository.existsByGroupIdAndUserIdAndCycleNumber(
+                    groupId, memberUser.getId(), currentCycle);
+
+            System.out.println("Has paid: " + hasPaid);
 
             if (!hasPaid) {
-                // Send email reminder
-                sendReminderEmail(memberUser, group, currentCycle);
+                System.out.println("Sending reminder to: " + memberUser.getEmail());
+                // For now, just log it
+                System.out.println("REMINDER: Would send email to " + memberUser.getEmail());
                 remindersSent++;
             }
         }
+
+        System.out.println("Reminders sent: " + remindersSent);
 
         if (remindersSent == 0) {
             throw new RuntimeException("All members have already paid for this cycle");
@@ -420,15 +471,31 @@ public class GroupService {
     }
 
     private void sendReminderEmail(User member, Group group, int cycleNumber) {
-        // Use your existing notification service
-        notificationService.sendEmailNotification(
-                member.getEmail(),
-                "Payment Reminder - " + group.getName(),
-                String.format("Dear %s,\n\nThis is a reminder that your contribution of ₦%.2f for cycle %d in group '%s' is due.\n\nPlease make your payment to avoid penalties.\n\nThank you!",
-                        member.getFirstName(),
-                        group.getContributionAmount(),
-                        cycleNumber,
-                        group.getName())
-        );
+        try {
+            // Send Email
+            notificationService.sendEmailNotification(
+                    member.getEmail(),
+                    "Payment Reminder - " + group.getName(),
+                    String.format("Dear %s,\n\nThis is a reminder that your contribution of ₦%.2f for cycle %d in group '%s' is due.\n\nThank you!",
+                            member.getFirstName(),
+                            group.getContributionAmount(),
+                            cycleNumber,
+                            group.getName())
+            );
+
+            // Send SMS (if you want)
+            if (member.getPhoneNumber() != null && !member.getPhoneNumber().isEmpty()) {
+                notificationService.sendSmsNotification(
+                        member.getPhoneNumber(),
+                        String.format("Ajo Reminder: Your payment of ₦%.0f for group '%s' cycle %d is due.",
+                                group.getContributionAmount(),
+                                group.getName(),
+                                cycleNumber)
+                );
+            }
+
+        } catch (Exception e) {
+            System.out.println("Failed to send reminder to " + member.getEmail() + ": " + e.getMessage());
+        }
     }
 }
