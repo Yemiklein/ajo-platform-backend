@@ -78,7 +78,7 @@ public class PaymentService {
                 "email", user.getEmail(),
                 "amount", amountInKobo,
                 "metadata", metadata,
-                "callback_url", "http://localhost:3000/payments/callback"
+                "callback_url", "https://ajo-platform-frontend.vercel.app/payments/callback"
         );
 
         String payloadJson = objectMapper.writeValueAsString(payload);
