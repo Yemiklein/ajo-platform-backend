@@ -3,6 +3,7 @@ package com.ajo.platform.modules.contributions.service;
 import com.ajo.platform.modules.auth.model.User;
 import com.ajo.platform.modules.auth.repository.UserRepository;
 import com.ajo.platform.modules.contributions.dto.ContributeRequest;
+import com.ajo.platform.modules.contributions.dto.ContributionProgress;
 import com.ajo.platform.modules.contributions.dto.ContributionResponse;
 import com.ajo.platform.modules.contributions.dto.ContributionSummaryResponse;
 import com.ajo.platform.modules.contributions.model.Contribution;
@@ -127,7 +128,7 @@ public class ContributionService {
                 .collect(Collectors.toList());
     }
 
-    public int getCycleProgress(Long groupId, Integer cycleNumber, String email) {
+    public ContributionProgress getCycleProgress(Long groupId, Integer cycleNumber, String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -135,7 +136,21 @@ public class ContributionService {
             throw new RuntimeException("You are not a member of this group");
         }
 
-        return contributionRepository.countPaidContributions(groupId, cycleNumber);
+        int totalMembers = groupMemberRepository.countByGroupId(groupId);
+        int paidCount = contributionRepository.countPaidContributions(groupId, cycleNumber);
+        List<ContributionResponse> contributions = contributionRepository
+                .findByGroupIdAndCycleNumber(groupId, cycleNumber)
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+
+        return ContributionProgress.builder()
+                .cycleNumber(cycleNumber)
+                .totalMembers(totalMembers)
+                .paidCount(paidCount)
+                .pendingCount(totalMembers - paidCount)
+                .contributions(contributions)
+                .build();
     }
 
     private ContributionResponse mapToResponse(Contribution contribution) {

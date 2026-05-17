@@ -46,7 +46,7 @@ public class ContributionController {
     }
 
     @GetMapping("/group/{groupId}/cycle/{cycleNumber}/progress")
-    public ResponseEntity<Integer> getCycleProgress(
+    public ResponseEntity<com.ajo.platform.modules.contributions.dto.ContributionProgress> getCycleProgress(
             @PathVariable Long groupId,
             @PathVariable Integer cycleNumber,
             @AuthenticationPrincipal UserDetails userDetails) {
