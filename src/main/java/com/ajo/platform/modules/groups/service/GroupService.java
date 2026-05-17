@@ -155,12 +155,9 @@ public class GroupService {
         groupInviteRepository.deleteByGroupIdAndInvitedEmail(groupId, request.getEmail());
 
         String inviteCode = UUID.randomUUID().toString();
-        String inviteLink = "https://ajo-platform-frontend.vercel.app/join/" + inviteCode;
 
-        if (System.getProperty("spring.profiles.active") == null ||
-                System.getProperty("spring.profiles.active").equals("local")) {
-            inviteLink = "http://localhost:3000/join/" + inviteCode;
-        }
+        // Generate the correct invite link based on environment
+        String inviteLink = generateInviteLink(inviteCode);
 
         GroupInvite invite = GroupInvite.builder()
                 .inviteCode(inviteCode)
@@ -199,6 +196,28 @@ public class GroupService {
                 .message(request.getMessage())
                 .expiresAt(invite.getExpiresAt().toString())
                 .build();
+    }
+
+    // Helper method to generate invite link based on environment
+    private String generateInviteLink(String inviteCode) {
+        // Try to get from environment variable first
+        String frontendUrl = System.getenv("FRONTEND_URL");
+
+        if (frontendUrl != null && !frontendUrl.isEmpty()) {
+            return frontendUrl + "/join/" + inviteCode;
+        }
+
+        // Fallback to checking Spring profile
+        String profile = System.getProperty("spring.profiles.active");
+
+        if (profile != null && profile.equals("production")) {
+            return "https://ajo-platform-frontend.vercel.app/join/" + inviteCode;
+        } else if (profile != null && profile.equals("staging")) {
+            return "https://staging.ajo-platform.vercel.app/join/" + inviteCode;
+        } else {
+            // Default to localhost for development
+            return "http://localhost:3000/join/" + inviteCode;
+        }
     }
 
     @Transactional
