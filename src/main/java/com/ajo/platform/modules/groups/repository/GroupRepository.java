@@ -18,6 +18,5 @@ public interface GroupRepository extends JpaRepository<Group, Long> {
 
     Optional<Group> findById(Long id);
 
-    // ADD THIS METHOD - fixes the compilation error
     List<Group> findByStatus(Group.GroupStatus status);
 }

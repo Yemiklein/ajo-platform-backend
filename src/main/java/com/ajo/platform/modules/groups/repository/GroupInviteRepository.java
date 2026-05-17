@@ -7,6 +7,8 @@ import java.util.Optional;
 
 @Repository
 public interface GroupInviteRepository extends JpaRepository<GroupInvite, Long> {
+
     Optional<GroupInvite> findByInviteCodeAndStatus(String inviteCode, GroupInvite.InviteStatus status);
-    void deleteByGroupIdAndInvitedEmail(Long groupId, String email);
+
+    void deleteByGroupIdAndInvitedEmail(Long groupId, String invitedEmail);
 }
