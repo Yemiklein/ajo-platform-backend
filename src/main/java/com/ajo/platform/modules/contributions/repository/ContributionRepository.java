@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,6 +22,12 @@ public interface ContributionRepository extends JpaRepository<Contribution, Long
     List<Contribution> findByGroupIdAndCycleNumber(Long groupId, Integer cycleNumber);
 
     List<Contribution> findByGroupIdAndUserId(Long groupId, Long userId);
+
+    Optional<BigDecimal> sumAmountByGroupIdAndStatus(Long groupId, String status);
+    Optional<BigDecimal> sumAmountByGroupIdAndUserIdAndStatus(Long groupId, Long userId, String status);
+    int countByGroupIdAndUserIdAndStatus(Long groupId, Long userId, String status);
+    Optional<LocalDateTime> findLastPaymentDateByUserIdAndGroupId(Long userId, Long groupId);
+    boolean existsByGroupIdAndUserIdAndCycleNumberAndStatus(Long groupId, Long userId, int cycleNumber, String status);
 
     @Query("SELECT COUNT(c) FROM Contribution c WHERE c.group.id = :groupId " +
             "AND c.cycleNumber = :cycleNumber AND c.status = com.ajo.platform.modules.contributions.model.Contribution.ContributionStatus.PAID")
