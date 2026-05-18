@@ -84,6 +84,12 @@ public class PayoutService {
 
         payoutRepository.save(payout);
 
+        // Check if this was the last cycle - mark group as completed
+        if (cycleNumber >= group.getMaxMembers()) {
+            group.setStatus(Group.GroupStatus.COMPLETED);
+            groupRepository.save(group);
+        }
+
         return mapToResponse(payout);
     }
 
