@@ -293,7 +293,7 @@ public class GroupService {
         System.out.println("User role: " + user.getRole().name());
 
         boolean isAdmin = "ADMIN".equals(user.getRole().name());
-        boolean isCreator = group.getCreatedBy().getId().equals(user.getId());
+        boolean isCreator = group.getCreatedBy().getEmail().equalsIgnoreCase(user.getEmail());
         boolean isMember = groupMemberRepository.existsByGroupIdAndUserId(groupId, user.getId());
 
         System.out.println("Is Admin: " + isAdmin);
