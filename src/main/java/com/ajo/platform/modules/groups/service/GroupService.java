@@ -309,7 +309,7 @@ public class GroupService {
 
         List<GroupMember> allMembers = groupMemberRepository.findByGroupId(groupId);
         List<GroupMember> activeMembers = allMembers.stream()
-                .filter(m -> "ACTIVE".equals(m.getStatus()))
+                .filter(m -> GroupMember.MemberStatus.ACTIVE.equals(m.getStatus()))
                 .collect(Collectors.toList());
 
         BigDecimal totalExpectedAmount = group.getContributionAmount()
@@ -461,7 +461,7 @@ public class GroupService {
         List<GroupMember> members = groupMemberRepository.findByGroupId(groupId);
         System.out.println("Total members: " + members.size());
 
-        int currentCycle = 1; // Start with cycle 1 for testing
+        int currentCycle = calculateCurrentCycle(group);
         int remindersSent = 0;
 
         for (GroupMember member : members) {
@@ -475,18 +475,13 @@ public class GroupService {
             System.out.println("Has paid: " + hasPaid);
 
             if (!hasPaid) {
-                System.out.println("Sending reminder to: " + memberUser.getEmail());
-                // For now, just log it
-                System.out.println("REMINDER: Would send email to " + memberUser.getEmail());
+                sendReminderEmail(memberUser, group, currentCycle);
                 remindersSent++;
             }
         }
 
         System.out.println("Reminders sent: " + remindersSent);
 
-        if (remindersSent == 0) {
-            throw new RuntimeException("All members have already paid for this cycle");
-        }
     }
 
     private void sendReminderEmail(User member, Group group, int cycleNumber) {
