@@ -19,6 +19,15 @@ public class GroupResponse {
     private Group.GroupStatus status;
     private Integer maxMembers;
     private Integer currentMembers;
+    private CreatedByInfo createdBy;
     private String createdByName;
     private LocalDateTime createdAt;
+
+    @Data
+    @Builder
+    public static class CreatedByInfo {
+        private Long id;
+        private String firstName;
+        private String lastName;
+    }
 }

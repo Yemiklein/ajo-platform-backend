@@ -7,10 +7,12 @@ import com.ajo.platform.modules.contributions.repository.ContributionRepository;
 import com.ajo.platform.modules.groups.model.Group;
 import com.ajo.platform.modules.groups.repository.GroupMemberRepository;
 import com.ajo.platform.modules.groups.repository.GroupRepository;
+import com.ajo.platform.modules.notifications.service.NotificationService;
 import com.ajo.platform.modules.payments.config.PaystackConfig;
 import com.ajo.platform.modules.payments.dto.InitializePaymentRequest;
 import com.ajo.platform.modules.payments.dto.InitializePaymentResponse;
-import com.ajo.platform.modules.payments.dto.PaystackWebhookEvent;
+import com.ajo.platform.modules.payouts.model.Payout;
+import com.ajo.platform.modules.payouts.repository.PayoutRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +41,8 @@ public class PaymentService {
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final ContributionRepository contributionRepository;
+    private final PayoutRepository payoutRepository;
+    private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
 
     public InitializePaymentResponse initializePayment(
@@ -63,11 +67,9 @@ public class PaymentService {
             throw new RuntimeException("You have already contributed for this cycle");
         }
 
-        // Amount in kobo (Paystack uses kobo)
         long amountInKobo = group.getContributionAmount()
                 .multiply(BigDecimal.valueOf(100)).longValue();
 
-        // Build metadata to identify the contribution on webhook
         Map<String, Object> metadata = Map.of(
                 "group_id", group.getId(),
                 "cycle_number", request.getCycleNumber(),
@@ -113,32 +115,35 @@ public class PaymentService {
     @Transactional
     public void handleWebhook(String payload, String paystackSignature) throws Exception {
 
-        // Verify webhook signature
         if (!isValidSignature(payload, paystackSignature)) {
             throw new RuntimeException("Invalid webhook signature");
         }
 
-        PaystackWebhookEvent event = objectMapper.readValue(payload,
-                PaystackWebhookEvent.class);
+        JsonNode root = objectMapper.readTree(payload);
+        String eventType = root.get("event").asText();
+        JsonNode data = root.get("data");
 
-        if (!"charge.success".equals(event.getEvent())) {
-            log.info("Ignoring webhook event: {}", event.getEvent());
+        switch (eventType) {
+            case "charge.success" -> handleChargeSuccess(data);
+            case "transfer.success" -> handleTransferSuccess(data);
+            case "transfer.failed" -> handleTransferFailed(data);
+            default -> log.info("Ignoring webhook event: {}", eventType);
+        }
+    }
+
+    private void handleChargeSuccess(JsonNode data) {
+        JsonNode metadataNode = data.get("metadata");
+        if (metadataNode == null || metadataNode.isNull()) {
+            log.warn("charge.success webhook without metadata, reference: {}",
+                    data.get("reference").asText());
             return;
         }
 
-        PaystackWebhookEvent.EventData data = event.getData();
-        PaystackWebhookEvent.Metadata metadata = data.getMetadata();
+        Long groupId = metadataNode.get("group_id").asLong();
+        Integer cycleNumber = metadataNode.get("cycle_number").asInt();
+        Long userId = metadataNode.get("user_id").asLong();
+        String reference = data.get("reference").asText();
 
-        if (metadata == null) {
-            log.warn("Webhook received without metadata, reference: {}", data.getReference());
-            return;
-        }
-
-        Long groupId = metadata.getGroupId();
-        Integer cycleNumber = metadata.getCycleNumber();
-        Long userId = metadata.getUserId();
-
-        // Idempotency check
         String idempotencyKey = "contrib-" + userId + "-" + groupId + "-" + cycleNumber;
         if (contributionRepository.findByIdempotencyKey(idempotencyKey).isPresent()) {
             log.info("Contribution already exists for key: {}", idempotencyKey);
@@ -146,10 +151,10 @@ public class PaymentService {
         }
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
 
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new RuntimeException("Group not found"));
+                .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
 
         Contribution contribution = Contribution.builder()
                 .group(group)
@@ -158,14 +163,45 @@ public class PaymentService {
                 .amount(group.getContributionAmount())
                 .status(Contribution.ContributionStatus.PAID)
                 .idempotencyKey(idempotencyKey)
-                .paymentReference(data.getReference())
+                .paymentReference(reference)
                 .paidAt(LocalDateTime.now())
                 .build();
 
         contributionRepository.save(contribution);
+        log.info("Contribution recorded for user {} in group {} cycle {}", userId, groupId, cycleNumber);
 
-        log.info("Contribution recorded for user {} in group {} cycle {}",
-                userId, groupId, cycleNumber);
+        int totalMembers = groupMemberRepository.countByGroupId(groupId);
+        int paidCount = contributionRepository.countPaidContributions(groupId, cycleNumber);
+
+        if (paidCount >= totalMembers) {
+            User creator = group.getCreatedBy();
+            notificationService.sendEmailNotification(
+                    creator.getEmail(),
+                    "All members paid — " + group.getName(),
+                    String.format("All %d members have paid for cycle %d in '%s'. You can now trigger the payout.",
+                            totalMembers, cycleNumber, group.getName())
+            );
+            log.info("All members paid for group {} cycle {}, creator notified", groupId, cycleNumber);
+        }
+    }
+
+    private void handleTransferSuccess(JsonNode data) {
+        String transferCode = data.get("transfer_code").asText();
+        payoutRepository.findByPaymentReference(transferCode).ifPresentOrElse(payout -> {
+            payout.setStatus(Payout.PayoutStatus.COMPLETED);
+            payout.setDisbursedAt(LocalDateTime.now());
+            payoutRepository.save(payout);
+            log.info("Payout {} marked COMPLETED for transfer {}", payout.getId(), transferCode);
+        }, () -> log.warn("No payout found for transfer code: {}", transferCode));
+    }
+
+    private void handleTransferFailed(JsonNode data) {
+        String transferCode = data.get("transfer_code").asText();
+        payoutRepository.findByPaymentReference(transferCode).ifPresentOrElse(payout -> {
+            payout.setStatus(Payout.PayoutStatus.FAILED);
+            payoutRepository.save(payout);
+            log.warn("Payout {} marked FAILED for transfer {}", payout.getId(), transferCode);
+        }, () -> log.warn("No payout found for transfer code: {}", transferCode));
     }
 
     private boolean isValidSignature(String payload, String signature) throws Exception {

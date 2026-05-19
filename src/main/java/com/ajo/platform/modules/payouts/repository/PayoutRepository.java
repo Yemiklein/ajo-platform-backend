@@ -17,4 +17,6 @@ public interface PayoutRepository extends JpaRepository<Payout, Long> {
     List<Payout> findByRecipientId(Long recipientId);
 
     boolean existsByGroupIdAndCycleNumber(Long groupId, Integer cycleNumber);
+
+    Optional<Payout> findByPaymentReference(String paymentReference);
 }

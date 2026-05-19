@@ -14,6 +14,7 @@ public class PayoutResponse {
     private Long id;
     private Long groupId;
     private String groupName;
+    private RecipientInfo recipient;
     private String recipientName;
     private String recipientEmail;
     private Integer cycleNumber;
@@ -23,4 +24,12 @@ public class PayoutResponse {
     private String narration;
     private LocalDateTime createdAt;
     private LocalDateTime disbursedAt;
+
+    @Data
+    @Builder
+    public static class RecipientInfo {
+        private Long id;
+        private String firstName;
+        private String lastName;
+    }
 }

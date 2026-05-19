@@ -305,6 +305,7 @@ public class GroupService {
             throw new RuntimeException("You are not authorized to view this group's contributions");
         }
 
+
         System.out.println("Access granted!");
 
         List<GroupMember> allMembers = groupMemberRepository.findByGroupId(groupId);
@@ -408,6 +409,11 @@ public class GroupService {
                 .status(group.getStatus())
                 .maxMembers(group.getMaxMembers())
                 .currentMembers(currentMembers)
+                .createdBy(GroupResponse.CreatedByInfo.builder()
+                        .id(group.getCreatedBy().getId())
+                        .firstName(group.getCreatedBy().getFirstName())
+                        .lastName(group.getCreatedBy().getLastName())
+                        .build())
                 .createdByName(group.getCreatedBy().getFirstName()
                         + " " + group.getCreatedBy().getLastName())
                 .createdAt(group.getCreatedAt())

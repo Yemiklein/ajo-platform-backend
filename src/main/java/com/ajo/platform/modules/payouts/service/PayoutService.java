@@ -7,19 +7,30 @@ import com.ajo.platform.modules.groups.model.Group;
 import com.ajo.platform.modules.groups.model.GroupMember;
 import com.ajo.platform.modules.groups.repository.GroupMemberRepository;
 import com.ajo.platform.modules.groups.repository.GroupRepository;
+import com.ajo.platform.modules.payments.config.PaystackConfig;
 import com.ajo.platform.modules.payouts.dto.PayoutResponse;
 import com.ajo.platform.modules.payouts.dto.PayoutSummary;
 import com.ajo.platform.modules.payouts.model.Payout;
 import com.ajo.platform.modules.payouts.repository.PayoutRepository;
+import com.ajo.platform.modules.users.model.BankAccount;
+import com.ajo.platform.modules.users.repository.BankAccountRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PayoutService {
@@ -29,6 +40,9 @@ public class PayoutService {
     private final GroupMemberRepository groupMemberRepository;
     private final ContributionRepository contributionRepository;
     private final UserRepository userRepository;
+    private final BankAccountRepository bankAccountRepository;
+    private final PaystackConfig paystackConfig;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public PayoutResponse triggerPayout(Long groupId, Integer cycleNumber, String email) {
@@ -39,19 +53,14 @@ public class PayoutService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new RuntimeException("Group not found"));
 
-        System.out.println("Group creator ID: " + group.getCreatedBy().getId());
-        System.out.println("Requesting user ID: " + requestingUser.getId());
-
         if (!group.getCreatedBy().getId().equals(requestingUser.getId())) {
             throw new RuntimeException("Only the group creator can trigger payouts");
         }
 
-        // Check payout doesn't already exist for this cycle
         if (payoutRepository.existsByGroupIdAndCycleNumber(groupId, cycleNumber)) {
             throw new RuntimeException("Payout already exists for this cycle");
         }
 
-        // Verify all members have paid for this cycle
         int totalMembers = groupMemberRepository.countByGroupId(groupId);
         int paidMembers = contributionRepository.countPaidContributions(groupId, cycleNumber);
 
@@ -60,37 +69,51 @@ public class PayoutService {
                     + cycleNumber + ". Paid: " + paidMembers + "/" + totalMembers);
         }
 
-        // Determine recipient based on payout position matching cycle number
-        GroupMember recipient = groupMemberRepository.findByGroupId(groupId)
+        GroupMember recipientMember = groupMemberRepository.findByGroupId(groupId)
                 .stream()
                 .filter(m -> m.getPayoutPosition().equals(cycleNumber))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("No member found for payout position " + cycleNumber));
 
-        // Calculate payout amount — total contributions for this cycle
+        User recipient = recipientMember.getUser();
+
+        BankAccount bankAccount = bankAccountRepository.findByUserId(recipient.getId())
+                .orElseThrow(() -> new RuntimeException(
+                        recipient.getFirstName() + " has no saved bank account. They must add one before receiving a payout."));
+
         BigDecimal payoutAmount = group.getContributionAmount()
                 .multiply(BigDecimal.valueOf(totalMembers));
 
-        Payout payout = Payout.builder()
-                .group(group)
-                .recipient(recipient.getUser())
-                .cycleNumber(cycleNumber)
-                .amount(payoutAmount)
-                .status(Payout.PayoutStatus.COMPLETED)
-                .narration("Ajo payout for " + group.getName()
-                        + " - Cycle " + cycleNumber)
-                .disbursedAt(LocalDateTime.now())
-                .build();
+        String narration = "Ajo payout for " + group.getName() + " - Cycle " + cycleNumber;
 
-        payoutRepository.save(payout);
+        try {
+            String recipientCode = createTransferRecipient(bankAccount);
+            String transferCode = initiateTransfer(recipientCode, payoutAmount, narration);
 
-        // Check if this was the last cycle - mark group as completed
-        if (cycleNumber >= group.getMaxMembers()) {
-            group.setStatus(Group.GroupStatus.COMPLETED);
-            groupRepository.save(group);
+            Payout payout = Payout.builder()
+                    .group(group)
+                    .recipient(recipient)
+                    .cycleNumber(cycleNumber)
+                    .amount(payoutAmount)
+                    .status(Payout.PayoutStatus.PROCESSING)
+                    .paymentReference(transferCode)
+                    .narration(narration)
+                    .build();
+
+            payoutRepository.save(payout);
+
+            if (cycleNumber >= group.getMaxMembers()) {
+                group.setStatus(Group.GroupStatus.COMPLETED);
+                groupRepository.save(group);
+            }
+
+            return mapToResponse(payout);
+
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Transfer initiation failed: " + e.getMessage(), e);
         }
-
-        return mapToResponse(payout);
     }
 
     public PayoutSummary getCycleSummary(Long groupId, Integer cycleNumber, String email) {
@@ -159,11 +182,75 @@ public class PayoutService {
                 .collect(Collectors.toList());
     }
 
+    private String createTransferRecipient(BankAccount bankAccount) throws Exception {
+        Map<String, Object> payload = Map.of(
+                "type", "nuban",
+                "name", bankAccount.getAccountName(),
+                "account_number", bankAccount.getAccountNumber(),
+                "bank_code", bankAccount.getBankCode(),
+                "currency", "NGN"
+        );
+
+        String json = objectMapper.writeValueAsString(payload);
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(paystackConfig.getBaseUrl() + "/transferrecipient"))
+                .header("Authorization", "Bearer " + paystackConfig.getSecretKey())
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        JsonNode body = objectMapper.readTree(response.body());
+
+        if (!body.get("status").asBoolean()) {
+            throw new RuntimeException("Failed to create transfer recipient: " + body.get("message").asText());
+        }
+
+        return body.get("data").get("recipient_code").asText();
+    }
+
+    private String initiateTransfer(String recipientCode, BigDecimal amount, String narration) throws Exception {
+        long amountInKobo = amount.multiply(BigDecimal.valueOf(100)).longValue();
+
+        Map<String, Object> payload = Map.of(
+                "source", "balance",
+                "amount", amountInKobo,
+                "recipient", recipientCode,
+                "reason", narration
+        );
+
+        String json = objectMapper.writeValueAsString(payload);
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(paystackConfig.getBaseUrl() + "/transfer"))
+                .header("Authorization", "Bearer " + paystackConfig.getSecretKey())
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        JsonNode body = objectMapper.readTree(response.body());
+
+        if (!body.get("status").asBoolean()) {
+            throw new RuntimeException("Transfer initiation failed: " + body.get("message").asText());
+        }
+
+        return body.get("data").get("transfer_code").asText();
+    }
+
     private PayoutResponse mapToResponse(Payout payout) {
         return PayoutResponse.builder()
                 .id(payout.getId())
                 .groupId(payout.getGroup().getId())
                 .groupName(payout.getGroup().getName())
+                .recipient(PayoutResponse.RecipientInfo.builder()
+                        .id(payout.getRecipient().getId())
+                        .firstName(payout.getRecipient().getFirstName())
+                        .lastName(payout.getRecipient().getLastName())
+                        .build())
                 .recipientName(payout.getRecipient().getFirstName()
                         + " " + payout.getRecipient().getLastName())
                 .recipientEmail(payout.getRecipient().getEmail())
