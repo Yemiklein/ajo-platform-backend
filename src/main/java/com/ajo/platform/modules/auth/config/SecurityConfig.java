@@ -30,6 +30,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import java.util.List;
 
 import java.io.IOException;
@@ -86,6 +87,13 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            response.getWriter().write("{\"error\":\"Unauthorized\"}");
+                        })
+                )
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthFilter(), UsernamePasswordAuthenticationFilter.class);
 
@@ -136,19 +144,17 @@ public class SecurityConfig {
         ) throws ServletException, IOException {
 
             final String authHeader = request.getHeader("Authorization");
-            final String jwt;
-            final String userEmail;
 
             if (authHeader == null || !authHeader.startsWith("Bearer ")) {
                 filterChain.doFilter(request, response);
                 return;
             }
 
-            jwt = authHeader.substring(7);
-            userEmail = jwtService.extractUsername(jwt);
+            try {
+                String jwt = authHeader.substring(7);
+                String userEmail = jwtService.extractUsername(jwt);
 
-            if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                try {
+                if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                     var userDetails = userDetailsService.loadUserByUsername(userEmail);
                     if (jwtService.isTokenValid(jwt, userDetails)) {
                         var authToken = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
@@ -158,9 +164,13 @@ public class SecurityConfig {
                         );
                         SecurityContextHolder.getContext().setAuthentication(authToken);
                     }
-                } catch (UsernameNotFoundException e) {
-                    logger.debug("User not found: " + userEmail);
                 }
+            } catch (Exception e) {
+                logger.debug("JWT authentication failed: " + e.getMessage());
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setContentType("application/json");
+                response.getWriter().write("{\"error\":\"Invalid or expired token\"}");
+                return;
             }
 
             filterChain.doFilter(request, response);
